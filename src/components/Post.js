@@ -1,14 +1,29 @@
 import React, { useState } from 'react';
 
-function Post({ post, onLike }) {
+function Post({ post, onLike, onComment, onEdit, onDelete, currentUser }) {
   const [comment, setComment] = useState('');
   const [showAllComments, setShowAllComments] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
-  const handleCommentSubmit = (e) => {
+  const isMyPost = currentUser && post.userId === currentUser.id;
+
+  const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (comment.trim()) {
-      // 댓글 추가 로직 (여기서는 간단히 초기화만)
+      await onComment(post.id, comment);
       setComment('');
+    }
+  };
+
+  const handleEdit = () => {
+    setShowMenu(false);
+    onEdit(post);
+  };
+
+  const handleDelete = () => {
+    if (window.confirm('정말로 이 게시물을 삭제하시겠습니까?')) {
+      setShowMenu(false);
+      onDelete(post.id);
     }
   };
 
@@ -20,7 +35,23 @@ function Post({ post, onLike }) {
           <span className="post-username">{post.username}</span>
           <span className="post-timestamp">• {post.timestamp}</span>
         </div>
-        <i className="fas fa-ellipsis-h"></i>
+        <div className="post-menu">
+          <i className="fas fa-ellipsis-h" onClick={() => setShowMenu(!showMenu)}></i>
+          {showMenu && (
+            <div className="post-menu-dropdown">
+              {isMyPost && (
+                <>
+                  <button onClick={handleEdit}>수정</button>
+                  <button onClick={handleDelete} className="delete">삭제</button>
+                </>
+              )}
+              {!isMyPost && (
+                <button>신고</button>
+              )}
+              <button onClick={() => setShowMenu(false)}>취소</button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="post-image">

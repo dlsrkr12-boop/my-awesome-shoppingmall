@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import Stories from './components/Stories';
 import Feed from './components/Feed';
+import Auth from './components/Auth';
+import CreatePostModal from './components/CreatePostModal';
+import { authAPI, postAPI } from './api/api';
 
 // 더미 데이터
 const postsData = [
@@ -133,32 +136,211 @@ const storiesData = [
 ];
 
 function App() {
-  const [posts, setPosts] = useState(postsData);
+  const [posts, setPosts] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
 
-  const handleLike = (postId) => {
-    setPosts(posts.map(post => 
-      post.id === postId 
-        ? { ...post, likes: post.likes + 1, isLiked: !post.isLiked }
-        : post
-    ));
+  // 로그인 상태 확인 및 게시물 불러오기
+  useEffect(() => {
+    const initApp = async () => {
+      const token = localStorage.getItem('token');
+      const savedUser = localStorage.getItem('currentUser');
+      
+      if (token && savedUser) {
+        try {
+          // 토큰 검증
+          const response = await authAPI.verify();
+          setCurrentUser(response.user);
+          
+          // 게시물 불러오기
+          await loadPosts();
+        } catch (error) {
+          console.error('Token verification failed:', error);
+          // 토큰이 유효하지 않으면 로그아웃
+          handleLogout();
+        }
+      }
+      setLoading(false);
+    };
+
+    initApp();
+  }, []);
+
+  // 게시물 불러오기
+  const loadPosts = async () => {
+    try {
+      const response = await postAPI.getPosts();
+      // API 응답 포맷팅
+      const formattedPosts = response.posts.map(post => ({
+        id: post.id,
+        userId: post.userId,
+        username: post.user.username,
+        userImage: post.user.profileImage,
+        postImage: post.image,
+        likes: post.likesCount,
+        caption: post.caption || '',
+        comments: post.comments.map(c => ({
+          username: c.user.username,
+          text: c.text
+        })),
+        timestamp: getTimeAgo(post.createdAt),
+        isLiked: post.isLiked
+      }));
+      setPosts(formattedPosts);
+    } catch (error) {
+      console.error('Failed to load posts:', error);
+      // API 실패 시 더미 데이터 사용
+      setPosts(postsData);
+    }
   };
+
+  // 시간 포맷팅
+  const getTimeAgo = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    if (seconds < 60) return '방금 전';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}분 전`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}시간 전`;
+    return `${Math.floor(seconds / 86400)}일 전`;
+  };
+
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    loadPosts(); // 로그인 후 게시물 불러오기
+  };
+
+  const handleLogout = () => {
+    authAPI.logout();
+    setCurrentUser(null);
+    setPosts([]);
+  };
+
+  const handleLike = async (postId) => {
+    try {
+      await postAPI.toggleLike(postId);
+      // 게시물 목록 새로고침
+      await loadPosts();
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
+      // 에러 시 로컬에서만 처리
+      setPosts(posts.map(post => 
+        post.id === postId 
+          ? { ...post, likes: post.likes + (post.isLiked ? -1 : 1), isLiked: !post.isLiked }
+          : post
+      ));
+    }
+  };
+
+  const handleCreatePost = async (postData) => {
+    try {
+      await postAPI.createPost(postData);
+      alert('게시물이 작성되었습니다!');
+      await loadPosts();
+    } catch (error) {
+      console.error('Failed to create post:', error);
+      throw error;
+    }
+  };
+
+  const handleEditPost = (post) => {
+    setEditingPost(post);
+    setShowCreateModal(true);
+  };
+
+  const handleUpdatePost = async (postData) => {
+    try {
+      await postAPI.updatePost(editingPost.id, postData);
+      alert('게시물이 수정되었습니다!');
+      setEditingPost(null);
+      await loadPosts();
+    } catch (error) {
+      console.error('Failed to update post:', error);
+      throw error;
+    }
+  };
+
+  const handleDeletePost = async (postId) => {
+    try {
+      await postAPI.deletePost(postId);
+      alert('게시물이 삭제되었습니다!');
+      await loadPosts();
+    } catch (error) {
+      console.error('Failed to delete post:', error);
+      alert('게시물 삭제에 실패했습니다.');
+    }
+  };
+
+  const handleComment = async (postId, text) => {
+    try {
+      await postAPI.createComment(postId, text);
+      await loadPosts();
+    } catch (error) {
+      console.error('Failed to create comment:', error);
+      alert('댓글 작성에 실패했습니다.');
+    }
+  };
+
+  const handleOpenCreateModal = () => {
+    setEditingPost(null);
+    setShowCreateModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
+    setEditingPost(null);
+  };
+
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        fontSize: '1.5rem',
+        color: '#666'
+      }}>
+        로딩 중...
+      </div>
+    );
+  }
+
+  // 로그인하지 않은 경우 로그인 화면 표시
+  if (!currentUser) {
+    return <Auth onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app">
-      <Header />
+      <Header 
+        currentUser={currentUser} 
+        onLogout={handleLogout}
+        onCreatePost={handleOpenCreateModal}
+      />
       <div className="main-content">
         <div className="feed-container">
           <Stories stories={storiesData} />
-          <Feed posts={posts} onLike={handleLike} />
+          <Feed 
+            posts={posts} 
+            onLike={handleLike}
+            onComment={handleComment}
+            onEdit={handleEditPost}
+            onDelete={handleDeletePost}
+            currentUser={currentUser}
+          />
         </div>
         <div className="sidebar">
           <div className="profile-widget">
-            <img src="./img/man.png" alt="profile" className="profile-pic-small" />
+            <img src={currentUser.profileImage} alt="profile" className="profile-pic-small" />
             <div className="profile-info">
-              <span className="username-bold">my_account</span>
-              <span className="name-gray">내 이름</span>
+              <span className="username-bold">{currentUser.username}</span>
+              <span className="name-gray">{currentUser.email}</span>
             </div>
-            <button className="switch-btn">전환</button>
+            <button className="switch-btn" onClick={handleLogout}>로그아웃</button>
           </div>
           <div className="suggestions">
             <div className="suggestions-header">
@@ -178,6 +360,14 @@ function App() {
           </div>
         </div>
       </div>
+
+      <CreatePostModal
+        isOpen={showCreateModal}
+        onClose={handleCloseModal}
+        onSubmit={editingPost ? handleUpdatePost : handleCreatePost}
+        editMode={!!editingPost}
+        initialData={editingPost ? { image: editingPost.postImage, caption: editingPost.caption } : {}}
+      />
     </div>
   );
 }
